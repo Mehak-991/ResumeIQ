@@ -65,7 +65,7 @@ ResumeIQ is a cutting-edge, AI-powered career assistant designed to help profess
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/Shashwat023/Resume-intelligence-suite.git
+git clone https://github.com/Mehak-991/ResumeIQ.git
 cd Resume-intelligence-suite
 ```
 
