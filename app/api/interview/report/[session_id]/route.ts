@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-const INTERVIEW_API_URL = process.env.INTERVIEW_API_URL || "http://localhost:8081"
+const INTERVIEW_API_URL = process.env.INTERVIEW_API_URL || "http://localhost:8082"
 
 export async function GET(
     _request: NextRequest,
@@ -9,6 +9,12 @@ export async function GET(
     try {
         const { session_id } = await params
 
+        if (!session_id) {
+            console.error("[interview/report] Error: Missing session_id")
+            return NextResponse.json({ success: false, error: "Session ID is required." }, { status: 400 })
+        }
+
+        console.log(`[interview/report] Requesting report from backend for session ${session_id}`)
         const response = await fetch(
             `${INTERVIEW_API_URL}/api/interview/report/${session_id}`,
             { method: "GET" }
@@ -18,7 +24,7 @@ export async function GET(
             const errorText = await response.text()
             console.error("[interview/report] Python API error:", errorText)
             return NextResponse.json(
-                { error: "Failed to get report", detail: errorText },
+                { success: false, error: `Failed to retrieve report: ${errorText}` },
                 { status: response.status }
             )
         }
@@ -26,7 +32,10 @@ export async function GET(
         const data = await response.json()
         return NextResponse.json(data)
     } catch (error) {
-        console.error("[interview/report] Error:", error)
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+        console.error("[interview/report] Exception stack trace:", error)
+        return NextResponse.json(
+            { success: false, error: error instanceof Error ? error.message : "Internal server error" },
+            { status: 500 }
+        )
     }
 }

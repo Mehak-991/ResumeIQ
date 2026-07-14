@@ -1,10 +1,9 @@
 """
 Agent 1: Skill Extractor
-Uses spaCy NER + Groq LLM to extract skills from resume and job description
+Uses Groq LLM to extract skills from resume and job description
 """
 
 import os
-import spacy
 from typing import List, Dict
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
@@ -16,7 +15,7 @@ import time
 class SkillExtractorAgent:
     """
     Extracts technical skills from resume and job description
-    Uses spaCy for initial NER and Groq for enhanced extraction
+    Uses Groq for enhanced extraction
     """
     
     def __init__(self):
@@ -31,31 +30,6 @@ class SkillExtractorAgent:
             temperature=0.1,
             max_retries=3
         )
-        
-        # Load spaCy model for NER
-        try:
-            self.nlp = spacy.load("en_core_web_sm")
-        except:
-            print("Downloading spaCy model...")
-            os.system("python -m spacy download en_core_web_sm")
-            self.nlp = spacy.load("en_core_web_sm")
-    
-    def extract_with_spacy(self, text: str) -> List[str]:
-        """Use spaCy NER to extract potential skills"""
-        doc = self.nlp(text)
-        
-        # Extract organizations, products, and technical terms
-        skills = []
-        for ent in doc.ents:
-            if ent.label_ in ["ORG", "PRODUCT", "GPE"]:
-                skills.append(ent.text)
-        
-        # Also look for capitalized technical terms
-        for token in doc:
-            if token.is_alpha and token.text[0].isupper() and len(token.text) > 2:
-                skills.append(token.text)
-        
-        return list(set(skills))
     
     def extract_skills_with_llm(self, text: str, context: str, max_retries: int = 3) -> List[SkillItem]:
         """Use Groq LLM for comprehensive skill extraction with retry logic"""
@@ -71,8 +45,8 @@ For each skill, provide:
 
 Return ONLY valid JSON array format:
 [
-  {{"name": "Python", "proficiency": 8.5, "category": "programming"}},
-  {{"name": "Kubernetes", "proficiency": 6.0, "category": "devops"}}
+  {"name": "Python", "proficiency": 8.5, "category": "programming"},
+  {"name": "Kubernetes", "proficiency": 6.0, "category": "devops"}
 ]
 
 Be comprehensive but accurate. Include:

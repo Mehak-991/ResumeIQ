@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import SkillGapAnalyzer from "@/components/skill-gap/SkillGapAnalyzer"
+import { ResumeProvider } from "@/context/ResumeContext"
 
 export const metadata: Metadata = {
   title: "Skill Gap Analyzer | ResumeIQ",
@@ -32,8 +33,10 @@ export default function SkillGapAnalyzerPage() {
             </p>
           </div>
 
-          {/* Actual analyzer — client component */}
-          <SkillGapAnalyzer />
+          {/* Actual analyzer — wrapped in ResumeProvider context */}
+          <ResumeProvider>
+            <SkillGapAnalyzer />
+          </ResumeProvider>
         </div>
       </main>
 

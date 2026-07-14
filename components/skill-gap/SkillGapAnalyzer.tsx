@@ -163,9 +163,17 @@ export default function SkillGapAnalyzer() {
             if (!res.ok) throw new Error(data.error ?? data.detail ?? `POST failed ${res.status}`)
             const id: string = data.analysis_id
             if (!id) throw new Error("No analysis_id in POST response")
-            console.log("[SkillGap] queued, analysis_id:", id)
-            setAnalysisId(id); setPollProgress(data.progress ?? "Queued"); setPhase("polling")
-            pollRef.current = setInterval(() => pollStatus(id), 3000)
+            
+            if (data.status === "completed") {
+                console.log("[SkillGap] completed immediately, analysis_id:", id)
+                setAnalysisId(id)
+                setPollProgress("Complete")
+                await fetchResults(id)
+            } else {
+                console.log("[SkillGap] queued, analysis_id:", id)
+                setAnalysisId(id); setPollProgress(data.progress ?? "Queued"); setPhase("polling")
+                pollRef.current = setInterval(() => pollStatus(id), 3000)
+            }
         } catch (e: unknown) {
             console.error("[SkillGap] POST error:", e)
             setErrorMsg(e instanceof Error ? e.message : "Failed to start analysis"); setPhase("error")

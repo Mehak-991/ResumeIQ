@@ -11,7 +11,7 @@ if sys.platform == 'win32':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
@@ -212,7 +212,6 @@ async def health_check():
 
 @app.post("/analyze", response_model=AnalysisStatusResponse)
 async def create_analysis(
-    background_tasks: BackgroundTasks,
     resume_pdf: UploadFile = File(..., description="Resume in PDF format"),
     job_description: str = Form(..., description="Job description as text")
 ):
@@ -222,7 +221,7 @@ async def create_analysis(
     - **resume_pdf**: Upload resume as PDF file
     - **job_description**: Paste job description as text
     
-    Returns analysis_id to track progress
+    Returns analysis_id with completed status directly
     """
     
     # Validate PDF file
@@ -261,19 +260,19 @@ async def create_analysis(
             "job_description": job_description[:500] + "..."  # Store preview only
         }
         
-        # Add background task
-        background_tasks.add_task(
-            run_analysis,
-            analysis_id,
-            resume_text,
-            job_description
-        )
+        # Run analysis immediately/synchronously
+        print(f"⚙️ Running analysis synchronously for ID: {analysis_id}")
+        run_analysis(analysis_id, resume_text, job_description)
+        
+        status = analysis_results[analysis_id].get("status", "failed")
+        progress = analysis_results[analysis_id].get("progress", "Failed")
+        message = "Analysis completed successfully." if status == "completed" else f"Analysis failed: {analysis_results[analysis_id].get('error', 'unknown error')}"
         
         return AnalysisStatusResponse(
             analysis_id=analysis_id,
-            status="queued",
-            message="Analysis started successfully. PDF processed.",
-            progress="Queued for processing"
+            status=status,
+            message=message,
+            progress=progress
         )
     
     except HTTPException:
