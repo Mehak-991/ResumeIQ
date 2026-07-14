@@ -217,38 +217,88 @@ Only return JSON.
 
 def summarize_text_document(full_text: str, max_workers=4):
     """Summarize document with parallel chunk processing for faster execution."""
+    # Validate input
+    if not full_text or len(full_text.strip()) < 100:
+        print("[ERROR] Document text is too short or empty")
+        return {
+            "success": False,
+            "error": "No text extracted from document or text is too short.",
+            "chunk_summaries": [],
+            "final_summary": {}
+        }
+    
     chunks = chunk_text(full_text)
     print(f"[INFO] Document split into {len(chunks)} chunks for parallel processing")
+    
+    if not chunks:
+        print("[ERROR] No chunks generated from document")
+        return {
+            "success": False,
+            "error": "Failed to chunk document text.",
+            "chunk_summaries": [],
+            "final_summary": {}
+        }
     
     chunk_results = []
     
     # Process chunks in parallel using ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all chunk summarization tasks
-        future_to_chunk = {
-            executor.submit(summarize_chunk_with_prompt, chunk): (i, chunk)
-            for i, chunk in enumerate(chunks)
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all chunk summarization tasks
+            future_to_chunk = {}
+            for i, chunk in enumerate(chunks):
+                if not chunk or len(chunk.strip()) < 10:
+                    print(f"[WARNING] Skipping empty chunk {i + 1}")
+                    continue
+                future = executor.submit(summarize_chunk_with_prompt, chunk)
+                future_to_chunk[future] = (i, chunk)
+            
+            if not future_to_chunk:
+                print("[ERROR] No valid chunks to process")
+                return {
+                    "success": False,
+                    "error": "No valid text chunks found in document.",
+                    "chunk_summaries": [],
+                    "final_summary": {}
+                }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_chunk):
+                chunk_idx, chunk_text = future_to_chunk[future]
+                try:
+                    result = future.result()
+                    chunk_results.append((chunk_idx, result))
+                    print(f"[PROGRESS] Completed chunk {chunk_idx + 1}/{len(chunks)}")
+                except Exception as e:
+                    print(f"[ERROR] Chunk {chunk_idx + 1} failed: {e}")
+                    chunk_results.append((chunk_idx, {"error": str(e)}))
+    except Exception as e:
+        print(f"[ERROR] Parallel processing failed: {e}")
+        return {
+            "success": False,
+            "error": f"Chunk processing failed: {str(e)}",
+            "chunk_summaries": [],
+            "final_summary": {}
         }
-        
-        # Collect results as they complete
-        for future in as_completed(future_to_chunk):
-            chunk_idx, chunk_text = future_to_chunk[future]
-            try:
-                result = future.result()
-                chunk_results.append((chunk_idx, result))
-                print(f"[PROGRESS] Completed chunk {chunk_idx + 1}/{len(chunks)}")
-            except Exception as e:
-                print(f"[ERROR] Chunk {chunk_idx + 1} failed: {e}")
-                chunk_results.append((chunk_idx, {"error": str(e)}))
     
     # Sort results by original chunk order
     chunk_results.sort(key=lambda x: x[0])
     chunk_results = [result for _, result in chunk_results]
     
+    if not chunk_results:
+        print("[ERROR] No chunk results obtained")
+        return {
+            "success": False,
+            "error": "Failed to summarize any document chunks.",
+            "chunk_summaries": [],
+            "final_summary": {}
+        }
+    
     print(f"[INFO] Aggregating {len(chunk_results)} chunk summaries...")
     final_summary = aggregate_chunk_summaries(chunk_results)
 
     return {
+        "success": True,
         "chunk_summaries": chunk_results,
         "final_summary": final_summary
     }
@@ -286,14 +336,27 @@ async def summarize_url(url: str = Form(...)):
         print(f"[INFO] Starting URL summarization for: {url}")
         text = extract_text_from_url(url)
         print(f"[INFO] Extracted {len(text)} characters from URL")
+        
+        if len(text) < 100:
+            return {
+                "success": False,
+                "error": "URL contains insufficient text content. Please try a different URL."
+            }
+        
         result = summarize_text_document(text, max_workers=4)
         print(f"[INFO] Summarization complete")
         return result
     except requests.Timeout:
-        return {"error": "URL extraction timed out. Please try again."}
+        return {
+            "success": False,
+            "error": "URL extraction timed out. Please try again."
+        }
     except Exception as e:
         print(f"[ERROR] URL summarization failed: {e}")
-        return {"error": str(e)}
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 @app.post("/summarize/pdf")
 async def summarize_pdf(file: UploadFile = File(...)):
@@ -303,6 +366,13 @@ async def summarize_pdf(file: UploadFile = File(...)):
     
     try:
         print(f"[INFO] Starting PDF summarization for: {file.filename}")
+        
+        # Validate file
+        if not file.filename.endswith('.pdf'):
+            return {
+                "success": False,
+                "error": "Only PDF files are supported."
+            }
         
         # Use tempfile for better file handling
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
@@ -314,7 +384,10 @@ async def summarize_pdf(file: UploadFile = File(...)):
             print(f"[INFO] Extracted {len(text)} characters from PDF")
             
             if len(text) < 100:
-                return {"error": "PDF appears to be empty or contains only images. Please try a text-based PDF."}
+                return {
+                    "success": False,
+                    "error": "PDF appears to be empty, contains only images, or is scanned. Please try a text-based PDF."
+                }
             
             result = summarize_text_document(text, max_workers=4)
             print(f"[INFO] Summarization complete")
@@ -326,7 +399,10 @@ async def summarize_pdf(file: UploadFile = File(...)):
                 
     except Exception as e:
         print(f"[ERROR] PDF summarization failed: {e}")
-        return {"error": str(e)}
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 # ---------------------------------------------------------
 # Run command:

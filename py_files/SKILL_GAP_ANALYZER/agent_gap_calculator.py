@@ -206,7 +206,7 @@ class GapCalculatorAgent:
                     'skill': req_skill_name,
                     'importance': req_skill.get('proficiency', 0),
                     'current_proficiency': 0.0,
-                    'required_proficiency': req_skill['proficiency'],
+                    'required_proficiency': req_skill.get('proficiency', 0),
                     'gap_severity': 'critical'
                 })
                 processed_gaps.add(skill_key)

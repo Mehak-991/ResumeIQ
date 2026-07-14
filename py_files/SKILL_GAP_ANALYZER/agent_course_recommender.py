@@ -51,7 +51,7 @@ class CourseRecommenderAgent:
             
         formatted_skills = []
         for gap in skills_list:
-            current_level = gap['current_proficiency']
+            current_level = gap.get('current_proficiency', 0)
             if current_level == 0:
                 level = "beginner"
             elif current_level < 5:
@@ -61,7 +61,7 @@ class CourseRecommenderAgent:
             formatted_skills.append({
                 "skill": gap.get('skill', 'unknown'),
                 "current_level": f"{current_level}/10",
-                "target_level": f"{gap['required_proficiency']}/10",
+                "target_level": f"{gap.get('required_proficiency', 0)}/10",
                 "recommended_difficulty": level
             })
             

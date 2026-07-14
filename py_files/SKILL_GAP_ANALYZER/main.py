@@ -137,6 +137,12 @@ def run_analysis(analysis_id: str, resume_text: str, job_description: str):
         analysis_results[analysis_id]["status"] = "processing"
         analysis_results[analysis_id]["progress"] = "Initializing agents..."
         
+        # Validate inputs
+        if not resume_text or len(resume_text.strip()) < 50:
+            raise ValueError("Resume text is too short or empty")
+        if not job_description or len(job_description.strip()) < 50:
+            raise ValueError("Job description is too short or empty")
+        
         # Initialize state
         initial_state = {
             "resume_text": resume_text,
@@ -166,12 +172,20 @@ def run_analysis(analysis_id: str, resume_text: str, job_description: str):
         analysis_results[analysis_id]["progress"] = "Calculating gaps..."
         final_state = app_workflow.invoke(initial_state)
         
+        # Check for errors in workflow
+        if final_state.get("errors"):
+            print(f"[ERROR] Workflow completed with errors: {final_state['errors']}")
+        
         # Store results
         analysis_results[analysis_id]["progress"] = "Generating recommendations..."
         analysis_results[analysis_id]["status"] = "completed"
         analysis_results[analysis_id]["result"] = final_state
         analysis_results[analysis_id]["progress"] = "Complete"
         
+    except ValueError as ve:
+        analysis_results[analysis_id]["status"] = "failed"
+        analysis_results[analysis_id]["error"] = str(ve)
+        analysis_results[analysis_id]["progress"] = f"Validation failed: {str(ve)}"
     except Exception as e:
         analysis_results[analysis_id]["status"] = "failed"
         analysis_results[analysis_id]["error"] = str(e)
@@ -249,6 +263,20 @@ async def create_analysis(
         print(f"[DOCUMENT] Extracting text from PDF: {resume_pdf.filename}")
         resume_text = extract_text_from_pdf(pdf_bytes)
         print(f"[SUCCESS] Extracted {len(resume_text)} characters from PDF")
+        
+        # Validate extracted text
+        if len(resume_text) < 100:
+            raise HTTPException(
+                status_code=400,
+                detail="PDF appears to be empty, contains only images, or is scanned. Please upload a text-based PDF."
+            )
+        
+        # Validate job description
+        if not job_description or len(job_description.strip()) < 50:
+            raise HTTPException(
+                status_code=400,
+                detail="Job description is too short. Please provide a detailed job description."
+            )
         
         # Initialize analysis record
         analysis_results[analysis_id] = {
