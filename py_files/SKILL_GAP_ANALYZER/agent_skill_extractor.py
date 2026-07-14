@@ -31,9 +31,97 @@ class SkillExtractorAgent:
             max_retries=3
         )
     
-    def extract_skills_with_llm(self, text: str, context: str, max_retries: int = 3) -> List[SkillItem]:
+    def normalize_skill_response(self, raw_response: str) -> List[Dict]:
+        """
+        Normalize LLM response to consistent skill format.
+        Supports:
+        - String arrays: ["Python", "SQL", "FastAPI"]
+        - Dict arrays with 'name': [{"name": "Python"}]
+        - Dict arrays with 'skill': [{"skill": "Python"}]
+        - Dict arrays with 'title': [{"title": "Python"}]
+        """
+        print(f"  [RAW LLM RESPONSE] {raw_response[:500]}...")
+        
+        try:
+            # Try direct JSON parse
+            data = json.loads(raw_response)
+        except json.JSONDecodeError:
+            # Try to extract JSON from markdown code blocks or text
+            import re
+            json_match = re.search(r'\[.*\]', raw_response, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    print(f"  [ERROR] Could not parse JSON from response")
+                    return []
+            else:
+                print(f"  [ERROR] No JSON array found in response")
+                return []
+        
+        if not isinstance(data, list):
+            print(f"  [ERROR] Response is not a list, got: {type(data)}")
+            return []
+        
+        normalized_skills = []
+        
+        for item in data:
+            try:
+                # Handle string format
+                if isinstance(item, str):
+                    normalized_skills.append({
+                        "name": item.strip(),
+                        "proficiency": 5.0,  # Default proficiency
+                        "category": "general"
+                    })
+                # Handle dict format
+                elif isinstance(item, dict):
+                    # Try multiple possible keys for skill name
+                    skill_name = (
+                        item.get('name') or 
+                        item.get('skill') or 
+                        item.get('title') or 
+                        item.get('technology') or 
+                        item.get('tool') or 
+                        ""
+                    )
+                    
+                    if not skill_name:
+                        print(f"  [WARNING] Skipping item with no skill name: {item}")
+                        continue
+                    
+                    # Get proficiency with fallback
+                    proficiency = item.get('proficiency', item.get('level', 5.0))
+                    if isinstance(proficiency, str):
+                        # Try to parse string proficiency
+                        try:
+                            proficiency = float(proficiency)
+                        except:
+                            proficiency = 5.0
+                    proficiency = min(max(float(proficiency), 0), 10)  # Clamp to 0-10
+                    
+                    # Get category with fallback
+                    category = item.get('category', item.get('type', 'general'))
+                    
+                    normalized_skills.append({
+                        "name": skill_name.strip(),
+                        "proficiency": proficiency,
+                        "category": category
+                    })
+                else:
+                    print(f"  [WARNING] Skipping non-string/dict item: {type(item)}")
+            except Exception as e:
+                print(f"  [WARNING] Error normalizing item {item}: {str(e)}")
+                continue
+        
+        print(f"  [NORMALIZATION] Normalized {len(normalized_skills)} skills from {len(data)} raw items")
+        return normalized_skills
+    
+    def extract_skills_with_llm(self, text: str, context: str, max_retries: int = 3) -> List[Dict]:
         """Use Groq LLM for comprehensive skill extraction with retry logic"""
-        print(f"[INFO] Starting skill extraction with {len(text)} characters of text")
+        
+        print(f"  [INPUT] Text length: {len(text)} characters")
+        print(f"  [INPUT] Context: {context}")
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are an expert technical recruiter and skill analyzer.
@@ -50,6 +138,10 @@ Return ONLY valid JSON array format:
   {"name": "Kubernetes", "proficiency": 6.0, "category": "devops"}
 ]
 
+Alternative formats also accepted:
+- Simple array: ["Python", "SQL", "FastAPI"]
+- Different keys: [{"skill": "Python"}, {"title": "SQL"}]
+
 Be comprehensive but accurate. Include:
 - Programming languages
 - Frameworks and libraries
@@ -64,93 +156,31 @@ Be comprehensive but accurate. Include:
         
         for attempt in range(max_retries):
             try:
+                print(f"  [LLM CALL] Attempt {attempt + 1}/{max_retries}")
                 response = self.llm.invoke(prompt.format_messages())
-                raw_response = response.content.strip()
-                print(f"[INFO] Raw LLM response (attempt {attempt + 1}): {raw_response[:200]}...")
                 
-                # Parse JSON response
-                try:
-                    skills_data = json.loads(raw_response)
-                    print(f"[INFO] Parsed JSON successfully, got {len(skills_data) if isinstance(skills_data, list) else 1} items")
-                    
-                    # Normalize response format
-                    normalized_skills = self._normalize_skill_response(skills_data)
-                    print(f"[INFO] Normalized to {len(normalized_skills)} valid skills")
+                # Normalize the response
+                normalized_skills = self.normalize_skill_response(response.content)
+                
+                if normalized_skills:
+                    print(f"  [SUCCESS] Extracted {len(normalized_skills)} skills")
                     return normalized_skills
-                    
-                except json.JSONDecodeError:
-                    # Fallback: try to extract JSON from response
-                    import re
-                    json_match = re.search(r'\[.*\]', raw_response, re.DOTALL)
-                    if json_match:
-                        skills_data = json.loads(json_match.group())
-                        print(f"[INFO] Extracted JSON from markdown, got {len(skills_data) if isinstance(skills_data, list) else 1} items")
-                        normalized_skills = self._normalize_skill_response(skills_data)
-                        print(f"[INFO] Normalized to {len(normalized_skills)} valid skills")
-                        return normalized_skills
+                else:
+                    print(f"  [WARNING] No skills extracted from response")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
                     else:
-                        raise ValueError("Could not parse JSON from LLM response")
+                        return []
                         
             except Exception as e:
-                print(f"  [WARNING] Attempt {attempt + 1}/{max_retries} failed: {str(e)}")
+                print(f"  [ERROR] Attempt {attempt + 1}/{max_retries} failed: {str(e)}")
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)  # Exponential backoff
                 else:
-                    print(f"[ERROR] Failed after {max_retries} attempts. Error: {str(e)}")
-                    raise Exception(f"Failed after {max_retries} attempts. Error: {str(e)}")
+                    print(f"  [ERROR] All {max_retries} attempts failed")
+                    return []
         
         return []
-    
-    def _normalize_skill_response(self, response) -> List[Dict]:
-        """Normalize various LLM response formats into consistent schema."""
-        normalized = []
-        
-        # Handle string array: ["Python", "SQL", "FastAPI"]
-        if isinstance(response, list) and len(response) > 0:
-            if isinstance(response[0], str):
-                for skill_name in response:
-                    normalized.append({
-                        "name": skill_name.strip(),
-                        "proficiency": 5.0,  # Default proficiency
-                        "category": "unknown"
-                    })
-                return normalized
-        
-        # Handle array of objects
-        if isinstance(response, list):
-            for item in response:
-                if isinstance(item, dict):
-                    # Try multiple possible keys for skill name
-                    skill_name = (
-                        item.get('name') or 
-                        item.get('skill') or 
-                        item.get('title') or 
-                        item.get('technology') or
-                        str(item.get('value', ''))
-                    )
-                    
-                    if skill_name and isinstance(skill_name, str) and skill_name.strip():
-                        normalized.append({
-                            "name": skill_name.strip(),
-                            "proficiency": float(item.get('proficiency', item.get('level', 5.0))),
-                            "category": item.get('category', item.get('type', 'unknown'))
-                        })
-        
-        # Handle single object
-        elif isinstance(response, dict):
-            skill_name = (
-                response.get('name') or 
-                response.get('skill') or 
-                response.get('title')
-            )
-            if skill_name and isinstance(skill_name, str) and skill_name.strip():
-                normalized.append({
-                    "name": skill_name.strip(),
-                    "proficiency": float(response.get('proficiency', 5.0)),
-                    "category": response.get('category', 'unknown')
-                })
-        
-        return normalized
     
     def __call__(self, state: AgentState) -> AgentState:
         """
@@ -162,23 +192,7 @@ Be comprehensive but accurate. Include:
         try:
             # Validate API key
             if not self.groq_api_key:
-                print("[ERROR] GROQ_API_KEY is not set")
-                state["extraction_status"] = "failed"
-                state["errors"] = ["SkillExtractor: GROQ_API_KEY not configured"]
-                return state
-            
-            # Validate input text
-            if not state.get("resume_text") or len(state["resume_text"].strip()) < 50:
-                print("[ERROR] Resume text is too short or empty")
-                state["extraction_status"] = "failed"
-                state["errors"] = ["SkillExtractor: Resume text is too short or empty"]
-                return state
-                
-            if not state.get("job_description") or len(state["job_description"].strip()) < 50:
-                print("[ERROR] Job description is too short or empty")
-                state["extraction_status"] = "failed"
-                state["errors"] = ["SkillExtractor: Job description is too short or empty"]
-                return state
+                raise ValueError("GROQ_API_KEY is not set")
             
             # Extract from resume
             print("  [EXTRACTING] Extracting candidate skills from resume...")
@@ -197,11 +211,12 @@ Be comprehensive but accurate. Include:
             print(f"  [SUCCESS] Found {len(candidate_skills)} candidate skills")
             print(f"  [SUCCESS] Found {len(required_skills)} required skills")
             
-            # Validate results
-            if not candidate_skills:
-                print("[WARNING] No candidate skills extracted")
-            if not required_skills:
-                print("[WARNING] No required skills extracted")
+            # Validate that skills were extracted
+            if not candidate_skills and not required_skills:
+                print(f"  [ERROR] No skills extracted from resume or job description")
+                state["extraction_status"] = "failed"
+                state["errors"] = ["SkillExtractor: No skills extracted from resume. Please ensure the resume contains technical skills."]
+                return state
             
             # Update state
             state["candidate_skills"] = candidate_skills
@@ -210,9 +225,9 @@ Be comprehensive but accurate. Include:
             
             # Print sample results
             if candidate_skills:
-                print(f"  [SAMPLE] Sample candidate skills: {[s.get('name', 'unknown') for s in candidate_skills[:5]]}")
+                print(f"  [SAMPLE] Sample candidate skills: {[s.get('name', s.get('skill', s.get('title', 'unknown'))) for s in candidate_skills[:5]]}")
             if required_skills:
-                print(f"  [SAMPLE] Sample required skills: {[s.get('name', 'unknown') for s in required_skills[:5]]}")
+                print(f"  [SAMPLE] Sample required skills: {[s.get('name', s.get('skill', s.get('title', 'unknown'))) for s in required_skills[:5]]}")
             
         except ValueError as ve:
             print(f"  [ERROR] Configuration Error: {str(ve)}")
@@ -223,7 +238,7 @@ Be comprehensive but accurate. Include:
             error_msg = str(e)
             if "Connection" in error_msg or "API" in error_msg:
                 print(f"  [ERROR] API Connection Error: {error_msg}")
-                state["errors"] = ["SkillExtractor: API connection failed. Please check your GROQ_API_KEY and internet connection."]
+                state["errors"] = [f"SkillExtractor: API connection failed. Please check your GROQ_API_KEY and internet connection."]
             else:
                 print(f"  [ERROR] Error in Skill Extractor: {error_msg}")
                 state["errors"] = [f"SkillExtractor: {error_msg}"]

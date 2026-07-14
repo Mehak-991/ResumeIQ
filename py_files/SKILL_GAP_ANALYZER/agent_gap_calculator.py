@@ -206,7 +206,7 @@ class GapCalculatorAgent:
                     'skill': req_skill_name,
                     'importance': req_skill.get('proficiency', 0),
                     'current_proficiency': 0.0,
-                    'required_proficiency': req_skill.get('proficiency', 0),
+                    'required_proficiency': req_skill['proficiency'],
                     'gap_severity': 'critical'
                 })
                 processed_gaps.add(skill_key)
@@ -258,10 +258,16 @@ Enhance these gaps with importance and context.""")
         try:
             # Check if previous agent completed
             if state.get("extraction_status") != "completed":
+                print(f"  [ERROR] Skill extraction not completed, status: {state.get('extraction_status')}")
                 raise Exception("Skill extraction not completed")
             
             candidate_skills = state["candidate_skills"]
             required_skills = state["required_skills"]
+            
+            # Validate skills exist
+            if not candidate_skills and not required_skills:
+                print(f"  [ERROR] No skills to analyze - candidate: {len(candidate_skills)}, required: {len(required_skills)}")
+                raise Exception("No skills available for gap analysis")
             
             print(f"  [INPUT] Raw input: {len(candidate_skills)} candidate skills, {len(required_skills)} required skills")
             

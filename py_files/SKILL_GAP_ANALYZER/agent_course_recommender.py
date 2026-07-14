@@ -51,7 +51,7 @@ class CourseRecommenderAgent:
             
         formatted_skills = []
         for gap in skills_list:
-            current_level = gap.get('current_proficiency', 0)
+            current_level = gap['current_proficiency']
             if current_level == 0:
                 level = "beginner"
             elif current_level < 5:
@@ -61,7 +61,7 @@ class CourseRecommenderAgent:
             formatted_skills.append({
                 "skill": gap.get('skill', 'unknown'),
                 "current_level": f"{current_level}/10",
-                "target_level": f"{gap.get('required_proficiency', 0)}/10",
+                "target_level": f"{gap['required_proficiency']}/10",
                 "recommended_difficulty": level
             })
             
@@ -158,9 +158,20 @@ Return ONLY valid JSON array with this exact structure, containing NO markdown b
         try:
             # Check if previous agent completed
             if state.get("gap_analysis_status") != "completed":
+                print(f"  [ERROR] Gap analysis not completed, status: {state.get('gap_analysis_status')}")
                 raise Exception("Gap analysis not completed")
             
             skill_gaps = state["skill_gaps"]
+            
+            # Validate skill gaps exist
+            if not skill_gaps:
+                print(f"  [WARNING] No skill gaps found - candidate may be fully qualified")
+                # Return empty results instead of failing
+                state["course_recommendations"] = []
+                state["learning_roadmap"] = {}
+                state["total_learning_time"] = 0.0
+                state["recommendation_status"] = "completed"
+                return state
             
             # Remove duplicate gaps
             unique_gaps = []
